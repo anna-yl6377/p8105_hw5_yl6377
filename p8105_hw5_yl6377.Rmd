@@ -6,9 +6,10 @@ date: "2026-11-17"
 
 ```{r}
 library(tidyverse)
+library(broom)
 ```
 
-# Problem 1: Birthday problem
+## Problem 1: Birthday problem
 ```{r}
 birthday_repeated = function(n) {
   birthdays = sample(1:365, size = n, replace = TRUE)
@@ -43,7 +44,7 @@ birthday_results_df |>
   )
 ```
 
-# Problem 2: Spaghetti plot
+## Problem 2: Spaghetti plot
 ```{r}
 unzip("hw5_data.zip", exdir = "hw5_data")
 ```
@@ -104,13 +105,138 @@ tidy_df |>
       color = arm
     )
   ) +
-  geom_point() +
-  geom_path() +
+  geom_line(alpha = 0.5) +
+  geom_point(alpha = 0.5) +
   facet_grid(~arm) +
   labs(
     title = "Observations Over Time by Study Arm",
     x = "Week",
-    y = "Observation"
+    y = "Observation",
+    color = "Study Arm"
   ) +
   theme_minimal()
 ```
+Comment on the differences
+The spaghetti plot shows individual trajectories of participants over time in both the control and experimental groups. There is considerable variation among participants within each group. Overall, the control group shows relatively little change over time, whereas the experimental group demonstrates an increasing trend in observations. This suggests that the experimental intervention may have had a positive effect on the outcome.
+
+
+## Problem 3
+
+Set design elements
+```{r}
+n = 30
+sigma = 5
+alpha = 0.05
+
+mu_values = seq(0, 6, by = 0.5)
+```
+
+Generate 5000 datasets and perform t-tests
+```{r}
+set.seed(123)
+
+simulation_results = tibble(
+  mu = mu_values
+) |>
+  mutate(
+    results = map(
+      mu,
+      \(true_mu) {
+        map_dfr(
+          1:5000,
+          \(i) {
+            x = rnorm(n, mean = true_mu, sd = sigma)
+
+            t.test(x, mu = 0) |>
+              tidy() |>
+              select(estimate, p.value)
+          }
+        )
+      }
+    )
+  ) |>
+  unnest(results)
+```
+
+Calculate power
+```{r}
+power_results = simulation_results |>
+  group_by(mu) |>
+  summarize(
+    power = mean(p.value < alpha)
+  )
+```
+
+Plot power against effect size
+```{r}
+ggplot(
+  power_results,
+  aes(x = mu, y = power)
+) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Power vs. True Mean",
+    x = "True Mean",
+    y = "Power"
+  ) +
+  theme_minimal()
+```
+
+As the effect size increases, the power of the test generally increases. When the true mean is closer to the null value, the test is less likely to reject the null hypothesis. As the true mean moves farther away from the null value, the difference becomes easier to detect, resulting in higher power. Eventually, the power may approach 1.
+
+Calculate average estimate
+```{r}
+estimate_results = simulation_results |>
+  group_by(mu) |>
+  summarize(
+    mean_estimate = mean(estimate)
+  )
+```
+
+Calculate average estimates only when null is rejected
+```{r}
+rejected_results = simulation_results |>
+  filter(p.value < alpha) |>
+  group_by(mu) |>
+  summarize(
+    rejected_mean_estimate = mean(estimate)
+  )
+```
+
+Plot the two estimates
+```{r}
+plot_data = left_join(
+  estimate_results,
+  rejected_results,
+  by = "mu"
+)
+
+ggplot(plot_data, aes(x = mu)) +
+  geom_line(
+    aes(y = mean_estimate, color = "All samples")
+  ) +
+  geom_point(
+    aes(y = mean_estimate, color = "All samples")
+  ) +
+  geom_line(
+    aes(y = rejected_mean_estimate, color = "Rejected samples")
+  ) +
+  geom_point(
+    aes(y = rejected_mean_estimate, color = "Rejected samples")
+  ) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Average Estimates vs. True Mean",
+    x = "True Mean",
+    y = "Average Estimate",
+    color = "Sample Type"
+  ) +
+  theme_minimal()
+```
+
+The average estimate across all simulations is approximately equal to the true population mean, since the sample mean is an unbiased estimator. However, the average estimate among samples in which the null hypothesis is rejected may not be approximately equal to the true value. This is because selecting only statistically significant results introduces selection bias. When the true effect is small, samples with estimates farther away from zero are more likely to be significant. Therefore, the average estimate among rejected samples tends to overestimate the true effect size in magnitude.
